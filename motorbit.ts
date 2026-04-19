@@ -241,8 +241,8 @@ namespace motorbit {
         basic.pause(20)
 
         // แจ้งผู้ใช้ให้ calibrate
-        basic.showString("CAL")
-        waitForCalibration()
+        //basic.showString("CAL")
+        //waitForCalibration()
     }
 
     function waitForCalibration(): void {
