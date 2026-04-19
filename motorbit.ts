@@ -332,6 +332,14 @@ namespace motorbit {
         gg_gripCloseAngle = gripCloseAngle
         gg_currentGripAngle = gripOpenAngle
     }
+    
+//% blockId=motorbit_reset_yaw
+    //% block="Reset Yaw to 0"
+    //% group="Gorilla Go"
+    //% weight=92
+    export function resetYaw(): void {
+        gg_zeroHeading = bno055Heading()
+    }
 
     /**
      * Turn left by a relative angle using tank mode (both wheels move).
