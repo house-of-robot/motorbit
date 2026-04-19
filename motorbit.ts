@@ -216,12 +216,83 @@ namespace motorbit {
         setPwm((index - 1) * 2 + 1, 0, 0);
     }
 
-    function initBNO055(): void {
-        i2cwrite(BNO055_ADDR, BNO055_OPR_MODE_REG, 0x00)
-        basic.pause(25)
-        // NDOF fusion mode — takes ~700 ms to stabilise
-        i2cwrite(BNO055_ADDR, BNO055_OPR_MODE_REG, 0x0C)
+    // function initBNO055(): void {
+    //     i2cwrite(BNO055_ADDR, BNO055_OPR_MODE_REG, 0x00)
+    //     basic.pause(25)
+    //     // NDOF fusion mode — takes ~700 ms to stabilise
+    //     i2cwrite(BNO055_ADDR, BNO055_OPR_MODE_REG, 0x0C)
+    //     basic.pause(700)
+    //     basic.showString("BNO")
+    // }
+    //% blockId=motorbit_initBNO055
+    //% block="initBNO055"
+    //% group="Gorilla Go"
+    //% weight=92
+    export function initBNO055(): void {
+        // รอ BNO055 boot
         basic.pause(700)
+
+        // Switch to CONFIG mode
+        i2cwrite(BNO055_ADDR, 0x3D, 0x00)
+        basic.pause(25)
+
+        // Set NDOF fusion mode
+        i2cwrite(BNO055_ADDR, 0x3D, 0x0C)
+        basic.pause(20)
+
+        // แจ้งผู้ใช้ให้ calibrate
+        basic.showString("CAL")
+        waitForCalibration()
+    }
+
+    function waitForCalibration(): void {
+        while (true) {
+            let calib = i2cread(BNO055_ADDR, 0x35)
+            let gyr = (calib >> 4) & 0x03
+            let acc = (calib >> 2) & 0x03
+            let mag = calib & 0x03
+
+            // แสดงความคืบหน้า
+            if (gyr < 3) { basic.showString("GYR " + gyr); basic.pause(300) }
+            if (acc < 3) { basic.showString("ACC " + acc); basic.pause(300) }
+            if (mag < 3) { basic.showString("MAG " + mag); basic.pause(300) }
+
+            if (gyr == 3 && acc == 3 && mag == 3) {
+                basic.showString("OK!")
+                break
+            }
+            basic.pause(500)
+        }
+    }
+
+    function checkChipID(): void {
+        let id = i2cread(BNO055_ADDR, 0x00)  // CHIP_ID register
+        basic.showNumber(id)  // ต้องได้ 160 (0xA0)
+    }
+
+    function checkOprMode(): void {
+        let mode = i2cread(BNO055_ADDR, 0x3D)  // OPR_MODE register
+        basic.showNumber(mode)  // ต้องได้ 12 (0x0C = NDOF)
+    }
+
+    //% blockId=motorbit_get_calib_status
+    //% block="Get IMU Calibration Status (0-3)"
+    //% group="IMU"
+    //% weight=55
+    //% advanced=true
+    export function getCalibrationStatus(): number {
+        let calib = i2cread(BNO055_ADDR, 0x35)
+        // return (calib >> 6) & 0x03;
+        return calib;
+    }
+
+    function isCalibrated(): boolean {
+        let calib = i2cread(BNO055_ADDR, 0x35)
+        let gyro = (calib >> 4) & 0x03
+        let acc = (calib >> 2) & 0x03
+        let mag = calib & 0x03
+        return gyro == 3 && acc == 3 && mag == 3
+        // ไม่จำเป็นต้องรอ SYS=3 ก็ได้ รอแค่ sensor ครบก็พอ
     }
 
     function bno055Heading(): number {
@@ -297,7 +368,7 @@ namespace motorbit {
         pins.setPull(rightPin, PinPullMode.PullUp)
         pins.onPulsed(leftPin, PulseValue.Low, function () { gg_leftTicks += 1 })
         pins.onPulsed(rightPin, PulseValue.Low, function () { gg_rightTicks += 1 })
-        initBNO055()
+        // initBNO055()
         gg_zeroHeading = bno055Heading()
     }
 
