@@ -3,7 +3,7 @@
 motorbit.setupRobot(
     motorbit.Motors.M4, DigitalPin.P0,
     motorbit.Motors.M3, DigitalPin.P2,
-    4.8, 4.8, 8.8, 270
+    4.7, 4.7, 8.8, 270
 )
 
 let testNum = 0
@@ -99,8 +99,15 @@ input.onButtonPressed(Button.AB, function () {
 
 // Press B → reset heading counter (ไม่ reset BNO055 zero)
 input.onButtonPressed(Button.B, function () {
-    testNum = 0
-    basic.showString("RST")
+    motorbit.driveStraight(30,motorbit.DistanceUnit.CM,150)
+    //motorbit.MotorRun(motorbit.Motors.M3,100)
 })
 
+//basic.forever(function () {
+    //motorbit.debugTicks()
+    //basic.pause(200)
+//})
+
 basic.showString("RDY")
+
+

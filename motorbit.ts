@@ -293,8 +293,10 @@ namespace motorbit {
         gg_ticksPerRev = ticksPerRev
         gg_leftTicks = 0
         gg_rightTicks = 0
-        pins.onPulsed(leftPin, PulseValue.High, function () { gg_leftTicks += 1 })
-        pins.onPulsed(rightPin, PulseValue.High, function () { gg_rightTicks += 1 })
+        pins.setPull(leftPin, PinPullMode.PullUp)
+        pins.setPull(rightPin, PinPullMode.PullUp)
+        pins.onPulsed(leftPin, PulseValue.Low, function () { gg_leftTicks += 1 })
+        pins.onPulsed(rightPin, PulseValue.Low, function () { gg_rightTicks += 1 })
         initBNO055()
         gg_zeroHeading = bno055Heading()
     }
@@ -341,6 +343,14 @@ namespace motorbit {
         gg_zeroHeading = bno055Heading()
     }
 
+    //% blockId=motorbit_reset_yaw
+    //% block="Reset Yaw to 0"
+    //% group="Gorilla Go"
+    //% weight=92
+    export function resetYaw(): void {
+        gg_zeroHeading = bno055Heading()
+    }
+
     /**
      * Turn left by a relative angle using tank mode (both wheels move).
      * @param degrees how many degrees to turn left; eg: 90
@@ -350,7 +360,7 @@ namespace motorbit {
     //% block="Turn Left %degrees ° speed %speed"
     //% group="Gorilla Go" weight=98
     //% degrees.min=0 degrees.max=360 degrees.defl=90
-    //% speed.min=0 speed.max=255 speed.defl=100
+    //% speed.min=0 speed.max=255 speed.defl=120
     //% inlineInputMode=inline
     export function turnLeftForDegrees(degrees: number, speed: number): void {
         let target = (getDegrees() - degrees + 360) % 360
@@ -366,7 +376,7 @@ namespace motorbit {
     //% block="Turn Right %degrees ° speed %speed"
     //% group="Gorilla Go" weight=97
     //% degrees.min=0 degrees.max=360 degrees.defl=90
-    //% speed.min=0 speed.max=255 speed.defl=100
+    //% speed.min=0 speed.max=255 speed.defl=120
     //% inlineInputMode=inline
     export function turnRightForDegrees(degrees: number, speed: number): void {
         let target = (getDegrees() + degrees) % 360
@@ -484,7 +494,7 @@ namespace motorbit {
     //% block="Rotate To %heading ° speed %speed"
     //% group="Gorilla Go" weight=95
     //% heading.min=0 heading.max=360 heading.defl=0
-    //% speed.min=0 speed.max=255 speed.defl=100
+    //% speed.min=0 speed.max=255 speed.defl=120
     //% inlineInputMode=inline
     export function rotateToDegrees(heading: number, speed: number): void {
         if (!initialized) initPCA9685()
@@ -587,23 +597,47 @@ namespace motorbit {
     //% block="Drive Straight %distance %unit at speed %speed"
     //% group="Gorilla Go" weight=94
     //% distance.defl=30
-    //% speed.min=0 speed.max=255 speed.defl=100
+    //% speed.min=0 speed.max=255 speed.defl=150
     //% inlineInputMode=inline
     export function driveStraight(distance: number, unit: DistanceUnit, speed: number): void {
         if (!initialized) initPCA9685()
         let distCm = unit == DistanceUnit.Inch ? distance * 2.54 : distance
-        let circumference = 3.14159 * gg_leftWheelDia
-        let targetTicks = Math.round(Math.abs(distCm) / circumference * gg_ticksPerRev)
+        let leftTarget = Math.round(Math.abs(distCm) / (3.14159 * gg_leftWheelDia) * gg_ticksPerRev)
+        let rightTarget = Math.round(Math.abs(distCm) / (3.14159 * gg_rightWheelDia) * gg_ticksPerRev)
         let dir = distCm >= 0 ? 1 : -1
         gg_leftTicks = 0
         gg_rightTicks = 0
-        driveLeft(dir * speed)
-        driveRight(dir * speed)
-        while (gg_leftTicks < targetTicks && gg_rightTicks < targetTicks) {
-            basic.pause(5)
+        let targetHeading = ggRawHeading()
+        let leftSpeed = speed
+        let rightSpeed = speed
+        driveLeft(dir * leftSpeed)
+        driveRight(dir * rightSpeed)
+        let driveStart = input.runningTime()
+        while (true) {
+            if (input.runningTime() - driveStart > 10000) break
+            if (gg_leftTicks >= leftTarget || gg_rightTicks >= rightTarget) break
+            let hdiff = ggHeadingDiff(targetHeading, ggRawHeading())
+            let hCorr = Math.min(Math.round(Math.abs(hdiff) * 8), 80)
+            let eff = hdiff * dir
+            let newLS = eff < -0.5 ? Math.max(40, speed - hCorr) : speed
+            let newRS = eff > 0.5 ? Math.max(40, speed - hCorr) : speed
+            if (Math.abs(newLS - leftSpeed) >= 2 || Math.abs(newRS - rightSpeed) >= 2) {
+                leftSpeed = newLS; rightSpeed = newRS
+                driveLeft(dir * leftSpeed)
+                driveRight(dir * rightSpeed)
+                serial.writeLine("hdiff:" + Math.round(hdiff) + " LS:" + leftSpeed + " RS:" + rightSpeed + " L:" + gg_leftTicks + " R:" + gg_rightTicks)
+            }
+            basic.pause(10)
         }
         MotorStop(gg_leftMotor)
         MotorStop(gg_rightMotor)
+        serial.writeLine("done LT:" + leftTarget + " L:" + gg_leftTicks + " RT:" + rightTarget + " R:" + gg_rightTicks)
+    }
+
+    //% blockId=motorbit_debug_ticks
+    //% block="Debug Ticks"
+    export function debugTicks(): void {
+        serial.writeLine("L:" + gg_leftTicks + " R:" + gg_rightTicks)
     }
 
     /**
