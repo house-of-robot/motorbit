@@ -115,6 +115,8 @@ namespace motorbit {
     let gg_ticksPerRev: number = 270
     let gg_leftTicks: number = 0
     let gg_rightTicks: number = 0
+    let gg_leftMotorDir: number = -1
+    let gg_rightMotorDir: number = 1
     let gg_liftServo: Servos = Servos.S2
     let gg_liftDownAngle: number = 30
     let gg_liftUpAngle: number = 150
@@ -228,6 +230,10 @@ namespace motorbit {
         return ((lsb | (msb << 8)) & 0xFFFF) / 16
     }
 
+    function ggRawHeading(): number {
+        return (bno055Heading() - gg_zeroHeading + 360) % 360
+    }
+
     function ggHeadingDiff(target: number, current: number): number {
         let d = target - current
         if (d > 180) d -= 360
@@ -238,6 +244,14 @@ namespace motorbit {
     function setGripperAngle(angle: number): void {
         Servo(gg_gripServo, angle)
         gg_currentGripAngle = angle
+    }
+
+    function driveLeft(speed: number): void {
+        MotorRun(gg_leftMotor, gg_leftMotorDir * speed)
+    }
+
+    function driveRight(speed: number): void {
+        MotorRun(gg_rightMotor, gg_rightMotorDir * speed)
     }
 
     // ── Gorilla Go ────────────────────────────────────────────────────────────────
@@ -328,7 +342,7 @@ namespace motorbit {
     //% block="Turn Left %degrees ° speed %speed"
     //% group="Gorilla Go" weight=98
     //% degrees.min=0 degrees.max=360 degrees.defl=90
-    //% speed.min=0 speed.max=255 speed.defl=120
+    //% speed.min=0 speed.max=255 speed.defl=100
     //% inlineInputMode=inline
     export function turnLeftForDegrees(degrees: number, speed: number): void {
         let target = (getDegrees() - degrees + 360) % 360
@@ -344,7 +358,7 @@ namespace motorbit {
     //% block="Turn Right %degrees ° speed %speed"
     //% group="Gorilla Go" weight=97
     //% degrees.min=0 degrees.max=360 degrees.defl=90
-    //% speed.min=0 speed.max=255 speed.defl=120
+    //% speed.min=0 speed.max=255 speed.defl=100
     //% inlineInputMode=inline
     export function turnRightForDegrees(degrees: number, speed: number): void {
         let target = (getDegrees() + degrees) % 360
@@ -360,23 +374,94 @@ namespace motorbit {
     //% block="Heading To %heading ° speed %speed"
     //% group="Gorilla Go" weight=96
     //% heading.min=0 heading.max=360 heading.defl=0
-    //% speed.min=0 speed.max=255 speed.defl=120
+    //% speed.min=0 speed.max=255 speed.defl=100
     //% inlineInputMode=inline
     export function headingToDegrees(heading: number, speed: number): void {
         if (!initialized) initPCA9685()
-        let diff = ggHeadingDiff(heading, getDegrees())
-        while (Math.abs(diff) > 2) {
-            if (diff > 0) {
-                // need to turn right (clockwise): left fwd, right back
-                MotorRun(gg_leftMotor, speed)
-                MotorRun(gg_rightMotor, -speed)
-            } else {
-                // need to turn left (counter-clockwise): left back, right fwd
-                MotorRun(gg_leftMotor, -speed)
-                MotorRun(gg_rightMotor, speed)
+        let prevHeading = getDegrees()
+        let noChangeMs = 0
+        let lastSign = 0
+
+        // Phase 1: coarse — ramp down from full speed starting at 120° out, exit at 40°
+        while (true) {
+            let diff = ggHeadingDiff(heading, getDegrees())
+            if (Math.abs(diff) <= 40) break
+            let turnSpeed = Math.abs(diff) < 120
+                ? Math.max(55, Math.round(speed * Math.abs(diff) / 120))
+                : speed
+            let curSign = diff > 0 ? 1 : -1
+            if (lastSign != 0 && curSign != lastSign) {
+                MotorStop(gg_leftMotor)
+                MotorStop(gg_rightMotor)
+                basic.pause(200)
+                noChangeMs = 0
             }
-            basic.pause(10)
-            diff = ggHeadingDiff(heading, getDegrees())
+            lastSign = curSign
+            if (diff > 0) {
+                driveLeft(turnSpeed)
+                driveRight(-turnSpeed)
+            } else {
+                driveLeft(-turnSpeed)
+                driveRight(turnSpeed)
+            }
+            basic.pause(20)
+            let curHeading = getDegrees()
+            if (Math.abs(ggHeadingDiff(curHeading, prevHeading)) < 1) {
+                noChangeMs += 20
+            } else {
+                noChangeMs = 0
+            }
+            prevHeading = curHeading
+            if (noChangeMs >= 400 && Math.abs(diff) > 50) {
+                if (diff > 0) {
+                    driveLeft(255)
+                    driveRight(-255)
+                } else {
+                    driveLeft(-255)
+                    driveRight(255)
+                }
+                basic.pause(150)
+                noChangeMs = 0
+            }
+        }
+        MotorStop(gg_leftMotor)
+        MotorStop(gg_rightMotor)
+        basic.pause(300)
+
+        // Phase 2: mid — slow continuous drive until within 10°
+        while (true) {
+            let diff = ggHeadingDiff(heading, getDegrees())
+            if (Math.abs(diff) <= 10) break
+            if (diff > 0) {
+                driveLeft(65)
+                driveRight(-65)
+            } else {
+                driveLeft(-65)
+                driveRight(65)
+            }
+            basic.pause(20)
+        }
+        MotorStop(gg_leftMotor)
+        MotorStop(gg_rightMotor)
+        basic.pause(400)
+
+        // Phase 3: fine — short pulses, max 8 attempts or 2000ms, 0.5° resolution
+        let fineStart = input.runningTime()
+        for (let i = 0; i < 8; i++) {
+            if (input.runningTime() - fineStart > 2000) break
+            let diff = ggHeadingDiff(heading, ggRawHeading())
+            if (Math.abs(diff) <= 0.5) break
+            if (diff > 0) {
+                driveLeft(90)
+                driveRight(-90)
+            } else {
+                driveLeft(-90)
+                driveRight(90)
+            }
+            basic.pause(25)
+            MotorStop(gg_leftMotor)
+            MotorStop(gg_rightMotor)
+            basic.pause(200)
         }
         MotorStop(gg_leftMotor)
         MotorStop(gg_rightMotor)
@@ -391,23 +476,94 @@ namespace motorbit {
     //% block="Rotate To %heading ° speed %speed"
     //% group="Gorilla Go" weight=95
     //% heading.min=0 heading.max=360 heading.defl=0
-    //% speed.min=0 speed.max=255 speed.defl=120
+    //% speed.min=0 speed.max=255 speed.defl=100
     //% inlineInputMode=inline
     export function rotateToDegrees(heading: number, speed: number): void {
         if (!initialized) initPCA9685()
-        let diff = ggHeadingDiff(heading, getDegrees())
-        while (Math.abs(diff) > 2) {
+        let prevHeading = getDegrees()
+        let noChangeMs = 0
+        let lastSign = 0
+
+        // Phase 1: coarse — ramp down from full speed starting at 120° out, exit at 40°
+        while (true) {
+            let diff = ggHeadingDiff(heading, getDegrees())
+            if (Math.abs(diff) <= 40) break
+            let turnSpeed = Math.abs(diff) < 120
+                ? Math.max(55, Math.round(speed * Math.abs(diff) / 120))
+                : speed
+            let curSign = diff > 0 ? 1 : -1
+            if (lastSign != 0 && curSign != lastSign) {
+                MotorStop(gg_leftMotor)
+                MotorStop(gg_rightMotor)
+                basic.pause(200)
+                noChangeMs = 0
+            }
+            lastSign = curSign
             if (diff > 0) {
-                // pivot right: only left wheel drives
-                MotorRun(gg_leftMotor, speed)
+                driveLeft(turnSpeed)
                 MotorStop(gg_rightMotor)
             } else {
-                // pivot left: only right wheel drives
                 MotorStop(gg_leftMotor)
-                MotorRun(gg_rightMotor, speed)
+                driveRight(turnSpeed)
             }
-            basic.pause(10)
-            diff = ggHeadingDiff(heading, getDegrees())
+            basic.pause(20)
+            let curHeading = getDegrees()
+            if (Math.abs(ggHeadingDiff(curHeading, prevHeading)) < 1) {
+                noChangeMs += 20
+            } else {
+                noChangeMs = 0
+            }
+            prevHeading = curHeading
+            if (noChangeMs >= 400 && Math.abs(diff) > 50) {
+                if (diff > 0) {
+                    driveLeft(255)
+                    MotorStop(gg_rightMotor)
+                } else {
+                    MotorStop(gg_leftMotor)
+                    driveRight(255)
+                }
+                basic.pause(150)
+                noChangeMs = 0
+            }
+        }
+        MotorStop(gg_leftMotor)
+        MotorStop(gg_rightMotor)
+        basic.pause(300)
+
+        // Phase 2: mid — slow continuous pivot until within 10°
+        while (true) {
+            let diff = ggHeadingDiff(heading, getDegrees())
+            if (Math.abs(diff) <= 10) break
+            if (diff > 0) {
+                driveLeft(65)
+                MotorStop(gg_rightMotor)
+            } else {
+                MotorStop(gg_leftMotor)
+                driveRight(65)
+            }
+            basic.pause(20)
+        }
+        MotorStop(gg_leftMotor)
+        MotorStop(gg_rightMotor)
+        basic.pause(400)
+
+        // Phase 3: fine — short pulses, max 8 attempts or 2000ms, 0.5° resolution
+        let fineStart = input.runningTime()
+        for (let i = 0; i < 8; i++) {
+            if (input.runningTime() - fineStart > 2000) break
+            let diff = ggHeadingDiff(heading, ggRawHeading())
+            if (Math.abs(diff) <= 0.5) break
+            if (diff > 0) {
+                driveLeft(90)
+                MotorStop(gg_rightMotor)
+            } else {
+                MotorStop(gg_leftMotor)
+                driveRight(90)
+            }
+            basic.pause(25)
+            MotorStop(gg_leftMotor)
+            MotorStop(gg_rightMotor)
+            basic.pause(200)
         }
         MotorStop(gg_leftMotor)
         MotorStop(gg_rightMotor)
@@ -423,7 +579,7 @@ namespace motorbit {
     //% block="Drive Straight %distance %unit at speed %speed"
     //% group="Gorilla Go" weight=94
     //% distance.defl=30
-    //% speed.min=0 speed.max=255 speed.defl=150
+    //% speed.min=0 speed.max=255 speed.defl=100
     //% inlineInputMode=inline
     export function driveStraight(distance: number, unit: DistanceUnit, speed: number): void {
         if (!initialized) initPCA9685()
@@ -433,8 +589,8 @@ namespace motorbit {
         let dir = distCm >= 0 ? 1 : -1
         gg_leftTicks = 0
         gg_rightTicks = 0
-        MotorRun(gg_leftMotor, dir * speed)
-        MotorRun(gg_rightMotor, dir * speed)
+        driveLeft(dir * speed)
+        driveRight(dir * speed)
         while (gg_leftTicks < targetTicks && gg_rightTicks < targetTicks) {
             basic.pause(5)
         }
