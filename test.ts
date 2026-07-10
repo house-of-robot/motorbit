@@ -36,9 +36,9 @@ motorbit.setTurnTuning(65, 40, 10, 0.5)
 input.onButtonPressed(Button.A, function () {
     basic.showString("D")
     motorbit.resetYaw()   // set zero ก่อนเริ่มทดสอบ
-    motorbit.driveStraight(30, motorbit.DistanceUnit.CM, 60)
+    motorbit.driveStraight(30, motorbit.DistanceUnit.CM, 50)
     basic.pause(600)
-    motorbit.driveStraight(-30, motorbit.DistanceUnit.CM, 60)
+    motorbit.driveStraight(-30, motorbit.DistanceUnit.CM, 50)
     basic.showIcon(IconNames.Yes)
 })
 
