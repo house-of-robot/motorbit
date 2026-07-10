@@ -73,4 +73,4 @@ input.onButtonPressed(Button.AB, function () {
     basic.showIcon(IconNames.Yes)
 })
 
-basic.showString("RDY")
+basic.showString("Y")
