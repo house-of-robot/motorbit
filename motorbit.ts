@@ -359,8 +359,8 @@ namespace motorbit {
     //% leftPin.defl=DigitalPin.P2
     //% rightMotor.defl=motorbit.Motors.M2
     //% rightPin.defl=DigitalPin.P0
-    //% leftWheelDia.defl=4.2
-    //% rightWheelDia.defl=4.2
+    //% leftWheelDia.defl=4.6
+    //% rightWheelDia.defl=4.6
     //% trackWidth.defl=9.4
     //% ticksPerRev.defl=270
     //% inlineInputMode=external
@@ -683,13 +683,13 @@ namespace motorbit {
      * Drive straight for a given distance (negative = backward).
      * @param distance distance to travel; eg: 30
      * @param unit cm or inch
-     * @param speed motor speed 0-255; eg: 150
+     * @param speed motor speed 0-255; eg: 60
      */
     //% blockId=gorilla_drive_straight
     //% block="Drive Straight %distance %unit at speed %speed"
     //% group="Gorilla Go" weight=94
     //% distance.defl=30
-    //% speed.min=0 speed.max=255 speed.defl=150
+    //% speed.min=0 speed.max=255 speed.defl=60
     //% inlineInputMode=inline
     export function driveStraight(distance: number, unit: DistanceUnit, speed: number): void {
     if (!initialized) initPCA9685()
